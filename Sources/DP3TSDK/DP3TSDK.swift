@@ -11,7 +11,7 @@ import UIKit
 /// Main class for handling SDK logic
 class DP3TSDK {
     /// appId of this instance
-  private let appInfo: [DP3TApplicationInfo]
+    private var appInfo: [DP3TApplicationInfo] = []
 
     /// A service to broadcast bluetooth packets containing the DP3T token
     private let broadcaster: BluetoothBroadcastService
@@ -82,8 +82,9 @@ class DP3TSDK {
     /// - Parameters:
     ///   - appInfo: applicationInfot to use (either discovery or manually initialized)
     ///   - urlSession: the url session to use for networking (app can set it to enable certificate pinning)
-    init(appInfo: [DP3TApplicationInfo], urlSession: URLSession) throws {
-        self.appInfo = appInfo
+    init(appInfo: DP3TApplicationInfo, urlSession: URLSession) throws {
+        
+        self.appInfo.append(appInfo)
         self.urlSession = urlSession
         database = try DP3TDatabase()
         crypto = try DP3TCryptoModule()
@@ -139,6 +140,15 @@ class DP3TSDK {
         NotificationCenter.default.removeObserver(self,
                                                   name: UIApplication.backgroundRefreshStatusDidChangeNotification,
                                                   object: nil)
+    }
+    
+    func addApp(appInfo: DP3TApplicationInfo) {
+        self.appInfo.append(appInfo)
+    }
+    
+    func removeApp(removeApp: DP3TApplicationInfo) {
+        var idx : Int = -1
+        
     }
 
     /// start tracing
