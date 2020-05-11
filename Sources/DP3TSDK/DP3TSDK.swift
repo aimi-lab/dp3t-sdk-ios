@@ -11,7 +11,7 @@ import UIKit
 /// Main class for handling SDK logic
 class DP3TSDK {
     /// appId of this instance
-    private let appInfo: DP3TApplicationInfo
+  private let appInfo: [DP3TApplicationInfo]
 
     /// A service to broadcast bluetooth packets containing the DP3T token
     private let broadcaster: BluetoothBroadcastService
@@ -29,7 +29,7 @@ class DP3TSDK {
     private let crypto: DP3TCryptoModule
 
     /// Fetch the discovery data and stores it
-    private let applicationSynchronizer: ApplicationSynchronizer
+    //private let applicationSynchronizer: ApplicationSynchronizer
 
     /// Synchronizes data on known cases
     private let synchronizer: KnownCasesSynchronizer
@@ -82,14 +82,17 @@ class DP3TSDK {
     /// - Parameters:
     ///   - appInfo: applicationInfot to use (either discovery or manually initialized)
     ///   - urlSession: the url session to use for networking (app can set it to enable certificate pinning)
-    init(appInfo: DP3TApplicationInfo, urlSession: URLSession) throws {
+    init(appInfo: [DP3TApplicationInfo], urlSession: URLSession) throws {
         self.appInfo = appInfo
         self.urlSession = urlSession
         database = try DP3TDatabase()
         crypto = try DP3TCryptoModule()
         matcher = try DP3TMatcher(database: database, crypto: crypto)
-        synchronizer = KnownCasesSynchronizer(appInfo: appInfo, database: database, matcher: matcher)
-        applicationSynchronizer = ApplicationSynchronizer(appInfo: appInfo, storage: database.applicationStorage, urlSession: urlSession)
+
+        synchronizer = KnownCasesSynchronizer(database: database, matcher: matcher)
+        //applicationSynchronizer = ApplicationSynchronizer(appInfo: appInfo, storage: database.applicationStorage, urlSession: urlSession)
+
+
         broadcaster = BluetoothBroadcastService(crypto: crypto)
         discoverer = BluetoothDiscoveryService()
         state = TracingState(numberOfHandshakes: (try? database.handshakesStorage.count()) ?? 0,
@@ -99,9 +102,11 @@ class DP3TSDK {
                              infectionStatus: InfectionStatus.getInfectionState(from: database),
                              backgroundRefreshState: UIApplication.shared.backgroundRefreshStatus)
 
+        
+        print("CALLING INITIALIZE!!!!")
         KnownCasesSynchronizer.initializeSynchronizerIfNeeded()
 
-        if #available(iOS 13.0, *) {
+        if #available(iOS 20.0, *) {
             let backgroundTaskManager = DP3TBackgroundTaskManager()
             self.backgroundTaskManager = backgroundTaskManager
             #if CALIBRATION
@@ -183,18 +188,19 @@ class DP3TSDK {
             case let .failure(error):
                 callback?(.failure(error))
                 return
-            case let .success(service):
-                self?.synchronizer.sync(service: service) { [weak self] result in
-                    DispatchQueue.main.async {
-                        switch result {
-                        case .success:
-                            self?.state.lastSync = Date()
-                            callback?(.success(()))
-                        case let .failure(error):
-                            callback?(.failure(.networkingError(error: error)))
-                        }
-                    }
+            case let .success(services):
+                self?.synchronizer.sync(services: services) { [weak self] result in
+                      DispatchQueue.main.async {
+                          switch result {
+                          case .success:
+                              self?.state.lastSync = Date()
+                              callback?(.success(()))
+                          case let .failure(error):
+                              callback?(.failure(.networkingError(error: error)))
+                          }
+                      }
                 }
+                
             }
         }
     }
@@ -233,7 +239,7 @@ class DP3TSDK {
                 DispatchQueue.main.async {
                     callback(.failure(error))
                 }
-            case let .success(service):
+            case let .success(services):
                 do {
                     var day: DayDate
                     var key: Data
@@ -253,21 +259,39 @@ class DP3TSDK {
                         authData = nil
                     }
                     let model = ExposeeModel(key: key, keyDate: day, authData: authData, fake: isFakeRequest)
-                    service.addExposee(model, authentication: authentication) { [weak self] result in
-                        DispatchQueue.main.async {
+                    
+                    let group = DispatchGroup()
+                    var sucessCount : Int = 0
+                    var errors = Array<DP3TNetworkingError>()
+                    
+                    for service in services {
+                        group.enter()
+                        service.addExposee(model, authentication: authentication) {[weak self] result in
                             switch result {
-                            case .success:
-                                if !isFakeRequest {
-                                    self?.state.infectionStatus = .infected
-                                    self?.stopTracing()
-                                    try! self?.crypto.reinitialize()
-                                }
-                                callback(.success(()))
-                            case let .failure(error):
-                                callback(.failure(.networkingError(error: error)))
+                                case .success:
+                                  sucessCount+=1
+                                  print("sucess")
+                                case let .failure(error):
+                                    errors.append(error)
                             }
+                            group.leave()
+                        }
+                           
+                    }
+                        
+                    group.notify(queue: .main)  {
+                        if(sucessCount == services.count) {
+                            callback(.success(()))
+                        }
+                        else {
+                            callback(.failure(.networkingError(error: errors[0])))
                         }
                     }
+                        
+                    
+                
+                    
+                    
                 } catch let error as DP3TTracingError {
                     DispatchQueue.main.async {
                         callback(.failure(error))
@@ -290,38 +314,53 @@ class DP3TSDK {
     #endif
 
     /// used to construct a new tracing service client
-    private func getATracingServiceClient(forceRefresh: Bool, callback: @escaping (Result<ExposeeServiceClient, DP3TTracingError>) -> Void) {
-        if forceRefresh == false, let cachedTracingServiceClient = cachedTracingServiceClient {
-            callback(.success(cachedTracingServiceClient))
-            return
-        }
+    private func getATracingServiceClient(forceRefresh: Bool, callback: @escaping (Result<[ExposeeServiceClient], DP3TTracingError>) -> Void) {
+//        if forceRefresh == false, let cachedTracingServiceClient = cachedTracingServiceClient {
+//            callback(.success(cachedTracingServiceClient))
+//            return
+//        }
+        var clients = [ExposeeServiceClient]()
 
-        switch appInfo {
-        case let .discovery(appId, _):
-            do {
-                try applicationSynchronizer.sync { [weak self] result in
-                    guard let self = self else { return }
-                    switch result {
-                    case .success:
-                        do {
-                            let desc = try self.database.applicationStorage.descriptor(for: appId)
-                            let client = ExposeeServiceClient(descriptor: desc)
-                            self.cachedTracingServiceClient = client
-                            callback(.success(client))
-                        } catch {
-                            callback(.failure(DP3TTracingError.databaseError(error: error)))
-                        }
-                    case let .failure(error):
-                        callback(.failure(error))
-                    }
-                }
-            } catch {
-                callback(.failure(DP3TTracingError.databaseError(error: error)))
+
+        for app in self.appInfo {
+            switch app {
+                case let .discovery(appId, _):
+                    callback(.failure(DP3TTracingError.cryptographyError(error: "Not supported"))) //TBD add real error message
+                
+                case let .manual(appInfo):
+                    clients.append(ExposeeServiceClient(descriptor: appInfo, urlSession: urlSession))
+
             }
-        case let .manual(appInfo):
-            let client = ExposeeServiceClient(descriptor: appInfo, urlSession: urlSession)
-            callback(.success(client))
         }
+        print(clients.count)
+        callback(.success(clients))
+
+        // switch appInfo {
+        // case let .discovery(appId, _):
+        //     do {
+        //         try applicationSynchronizer.sync { [weak self] result in
+        //             guard let self = self else { return }
+        //             switch result {
+        //             case .success:
+        //                 do {
+        //                     let desc = try self.database.applicationStorage.descriptor(for: appId)
+        //                     let client = ExposeeServiceClient(descriptor: desc)
+        //                     self.cachedTracingServiceClient = client
+        //                     callback(.success(client))
+        //                 } catch {
+        //                     callback(.failure(DP3TTracingError.databaseError(error: error)))
+        //                 }
+        //             case let .failure(error):
+        //                 callback(.failure(error))
+        //             }
+        //         }
+        //     } catch {
+        //         callback(.failure(DP3TTracingError.databaseError(error: error)))
+        //     }
+        // case let .manual(appInfo):
+        //     let client = ExposeeServiceClient(descriptor: appInfo, urlSession: urlSession)
+        //     callback(.success(client))
+        // }
     }
 
     /// reset the SDK

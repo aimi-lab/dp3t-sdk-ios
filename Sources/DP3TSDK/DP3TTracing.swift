@@ -56,7 +56,7 @@ public enum DP3TTracing {
     ///   - appId: application identifier used for the discovery call
     ///   - enviroment: enviroment to use
     ///   - urlSession: the url session to use for networking (can used to enable certificate pinning)
-    public static func initialize(with appInfo: DP3TApplicationInfo,
+    public static func initialize(with appInfo: [DP3TApplicationInfo],
                                   urlSession: URLSession = .shared,
                                   mode: DP3TMode = .production) throws {
         guard instance == nil else {
