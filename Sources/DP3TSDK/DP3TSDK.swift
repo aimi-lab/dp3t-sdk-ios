@@ -104,10 +104,9 @@ class DP3TSDK {
                              backgroundRefreshState: UIApplication.shared.backgroundRefreshStatus)
 
         
-        print("CALLING INITIALIZE!!!!")
         KnownCasesSynchronizer.initializeSynchronizerIfNeeded()
 
-        if #available(iOS 20.0, *) {
+        if #available(iOS 13.0, *) {
             let backgroundTaskManager = DP3TBackgroundTaskManager()
             self.backgroundTaskManager = backgroundTaskManager
             #if CALIBRATION
@@ -142,13 +141,31 @@ class DP3TSDK {
                                                   object: nil)
     }
     
-    func addApp(appInfo: DP3TApplicationInfo) {
-        self.appInfo.append(appInfo)
+    func addEndpoint(endpoint: DP3TApplicationInfo) {
+        self.appInfo.append(endpoint)
     }
     
-    func removeApp(removeApp: DP3TApplicationInfo) {
+    func removeEndpoint(endpoint: ApplicationDescriptor) {
         var idx : Int = -1
         
+        for i in 0..<self.appInfo.count {
+            let app = self.appInfo[i]
+            
+            switch app {
+                case let .manual(appInfo):
+                    if((appInfo.bucketBaseUrl == endpoint.bucketBaseUrl) &&
+                        (appInfo.reportBaseUrl == endpoint.reportBaseUrl)) {
+                        idx = i
+                    }
+                    
+                default:
+                    continue
+            
+                }
+        }
+        if(idx >= 0) {
+            self.appInfo.remove(at:idx)
+        }
     }
 
     /// start tracing
@@ -288,19 +305,19 @@ class DP3TSDK {
                         }
                            
                     }
-                        
                     group.notify(queue: .main)  {
                         if(sucessCount == services.count) {
+                            if !isFakeRequest {
+                                self.state.infectionStatus = .infected
+                                self.stopTracing()
+                                try! self.crypto.reinitialize()
+                            }
                             callback(.success(()))
                         }
                         else {
                             callback(.failure(.networkingError(error: errors[0])))
                         }
                     }
-                        
-                    
-                
-                    
                     
                 } catch let error as DP3TTracingError {
                     DispatchQueue.main.async {
@@ -344,33 +361,6 @@ class DP3TSDK {
         }
         print(clients.count)
         callback(.success(clients))
-
-        // switch appInfo {
-        // case let .discovery(appId, _):
-        //     do {
-        //         try applicationSynchronizer.sync { [weak self] result in
-        //             guard let self = self else { return }
-        //             switch result {
-        //             case .success:
-        //                 do {
-        //                     let desc = try self.database.applicationStorage.descriptor(for: appId)
-        //                     let client = ExposeeServiceClient(descriptor: desc)
-        //                     self.cachedTracingServiceClient = client
-        //                     callback(.success(client))
-        //                 } catch {
-        //                     callback(.failure(DP3TTracingError.databaseError(error: error)))
-        //                 }
-        //             case let .failure(error):
-        //                 callback(.failure(error))
-        //             }
-        //         }
-        //     } catch {
-        //         callback(.failure(DP3TTracingError.databaseError(error: error)))
-        //     }
-        // case let .manual(appInfo):
-        //     let client = ExposeeServiceClient(descriptor: appInfo, urlSession: urlSession)
-        //     callback(.success(client))
-        // }
     }
 
     /// reset the SDK

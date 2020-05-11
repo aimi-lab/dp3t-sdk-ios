@@ -67,8 +67,15 @@ public enum DP3TTracing {
             instance = try DP3TSDK(appInfo: appInfo, urlSession: urlSession)
         }
         else {
-            instance.addApp(appInfo: appInfo)
+            instance.addEndpoint(endpoint: appInfo)
         }
+    }
+    
+    public static func removeEndpoint(with appInfo: ApplicationDescriptor) throws {
+        
+            if(instance != nil) {
+                instance.removeEndpoint(endpoint: appInfo)
+            }
     }
 
     /// The delegate
