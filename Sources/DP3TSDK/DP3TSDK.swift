@@ -106,7 +106,7 @@ class DP3TSDK {
         
         KnownCasesSynchronizer.initializeSynchronizerIfNeeded()
 
-        if #available(iOS 13.0, *) {
+        /*if #available(iOS 13.0, *) {
             let backgroundTaskManager = DP3TBackgroundTaskManager()
             self.backgroundTaskManager = backgroundTaskManager
             #if CALIBRATION
@@ -115,7 +115,7 @@ class DP3TSDK {
             backgroundTaskManager.register()
         } else {
             backgroundTaskManager = nil
-        }
+        }*/
 
         broadcaster.bluetoothDelegate = self
         discoverer.bluetoothDelegate = self
