@@ -116,7 +116,7 @@ class DP3TSDK {
         } else {
             backgroundTaskManager = nil
         }*/
-
+        backgroundTaskManager = nil
         broadcaster.bluetoothDelegate = self
         discoverer.bluetoothDelegate = self
         discoverer.delegate = matcher
